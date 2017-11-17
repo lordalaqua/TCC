@@ -99,4 +99,4 @@ def rotateSphere(image, alpha, beta, gamma, writeToFile=None):
 
 def rotateBack(image, alpha, beta, gamma, writeToFile=None):
     a, b, c = eulerFromR(composeRotationMatrix(alpha, beta, gamma).T)
-    return rotateSphere(image, a, b, c, writeToFile=None)
+    return rotateSphere(image, a, b, c, writeToFile)

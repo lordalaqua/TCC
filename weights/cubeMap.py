@@ -74,4 +74,4 @@ def cube_map_depth_weights(images, exclude_poles=False):
     # Find the minimum coefficients to transform images
     system = np.array(system)
     u, s, v = np.linalg.svd(system)
-    return v[11]
+    return v[10]
