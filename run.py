@@ -8,7 +8,7 @@ from partition.rotateSphere import rotateSphere, rotateBack
 from partition.perspectiveToEquirectangular import perspectiveToEquirectangular
 from partition.equirectangularToPerspective import equirectangularToPerspective
 
-from weights.cubeMap import cube_map_depth_weights
+from weights.cubeMap import per_edge_weights
 
 path = os.path.dirname(os.path.realpath(__file__))
 
@@ -18,7 +18,7 @@ def mapImage(function, image):
     for i in range(image.shape[0]):
         for j in range(image.shape[1]):
             pixel = image.item((i, j))
-            mapped.itemset((i, j), function(pixel))
+            mapped.itemset((i, j), function(pixel, i, j))
     return mapped
 
 
@@ -37,16 +37,17 @@ if __name__ == "__main__":
     rotated = filename('rotated')
     crop = filename('crop')
     depth = filename('depth')
-    normalized = filename('normalized')
+    weighted = filename('weighted')
     reprojected = filename('reprojection')
     validmap = filename('validmap')
     output = filename('output')
     outputmap = filename('outputmap')
-
+    input_size = cv2.imread(image).shape
     # config values
     run_depth_prediction = False
-    reconstruct_sphere = False
-    reconstruct_in = normalized
+    run_weighting = True
+    reconstruct_sphere = True
+    reconstruct_in = weighted
     fov_h = 89.99  # 60.0
     fov = (90, 90)
     crop_size = 640
@@ -79,26 +80,30 @@ if __name__ == "__main__":
         depth_values.append(cv2.imread(depth(i), 0).astype(np.float32) / 255.0)
 
     # Run solving algorithm
-    s = cube_map_depth_weights(np.array(depth_values), exclude_poles=True)
-    print(s)
-    new_depths = []
-    for i in range(len(s)):
-        new_img = (depth_values[i] * s[i])
-        new_depths.append(new_img)
-    new_depths = np.array(new_depths)
-    maxValue = np.amax(new_depths)
-    minValue = np.amin(new_depths)
-    print("Max: %s, Min: %s" % (maxValue, minValue))
-    for i in range(len(s)):
-        normalized_image = mapImage(
-            lambda p: (p - minValue) /
-            (maxValue - minValue) * 255,
-            new_depths[i])
-        cv2.imwrite(normalized(i), normalized_image)
+    weights = per_edge_weights(np.array(depth_values))
+    print(weights)
+
+    if(run_weighting):
+        new_depths = []
+        for i in range(len(weights)):
+            w1, w2 = weights[i]
+            new_img = mapImage(lambda pixel, i, j: (
+                pixel * ((img_size - j) * w1 + j * w2) / float(img_size)), depth_values[i])
+            new_depths.append(new_img)
+        new_depths = np.array(new_depths)
+        maxValue = np.amax(new_depths)
+        minValue = np.amin(new_depths)
+        print("Max: %s, Min: %s" % (maxValue, minValue))
+        for i in range(len(weights)):
+            weighted_image = mapImage(
+                lambda p, i, j: (p - minValue) /
+                (maxValue - minValue) * 255,
+                new_depths[i])
+            cv2.imwrite(weighted(i), weighted_image)
 
     # Reconstruct sphere
     if(reconstruct_sphere):
-        reconstructed = np.zeros((1138, 2276))
+        reconstructed = np.zeros((input_size[0], input_size[1]))
         for i, (phi, theta) in enumerate(angles):
 
             alpha, beta, gamma = np.radians([0, phi, -theta])
