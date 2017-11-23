@@ -19,7 +19,7 @@ def cube_map_depth_weights(images, exclude_poles=False):
                   *------*
     """
     num_images = (4 if exclude_poles else 6)
-    num_coefficients = 2 * num_images
+    num_coefficients = num_images
 
     assert(images.shape[0] == num_images)
     assert(images.shape[1] == images.shape[2])
@@ -66,12 +66,10 @@ def cube_map_depth_weights(images, exclude_poles=False):
             pixel_a = images.item(plane_a, *direction_a(scan))
             pixel_b = images.item(plane_b, *direction_b(scan))
             equation = np.zeros(num_coefficients)
-            equation.itemset(2 * plane_a, pixel_a)
-            equation.itemset(2 * plane_a + 1, 1)
-            equation.itemset(2 * plane_b, -pixel_b)
-            equation.itemset(2 * plane_b + 1, -1)
+            equation.itemset(plane_a, pixel_a)
+            equation.itemset(plane_b, -pixel_b)
             system.append(equation)
     # Find the minimum coefficients to transform images
     system = np.array(system)
     u, s, v = np.linalg.svd(system)
-    return v[10]
+    return v[-1]

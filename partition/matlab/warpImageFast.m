@@ -19,5 +19,5 @@ im = im(minY:maxY,minX:maxX,:);
 for c=1:size(im,3)
     % im_warp(:,:,c) = uint8(interp2(double(im(:,:,c)), XXdense-minX+1, YYdense-minY+1,'*cubic'));
     %im_warp(:,:,c) = interp2(im(:,:,c), XXdense-minX+1, YYdense-minY+1,'*cubic');
-    im_warp(:,:,c) = interp2(im(:,:,c), XXdense-minX+1, YYdense-minY+1,'*linear');
+    im_warp(:,:,c) = interp2(im(:,:,c), XXdense-minX+1, YYdense-minY+1,'linear');
 end

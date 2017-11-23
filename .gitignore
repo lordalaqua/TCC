@@ -2,3 +2,6 @@ depth/*
 .vscode
 *.pyc
 
+collation.jpg
+reconstructed_raw.jpg
+reconstructed_weighed.jpg
