@@ -36,7 +36,7 @@ def cube2sphere(faces, output):
               (faces(0), faces(2), faces(1), faces(3), 'black.png',
                'black.png', output))
     flipped = cv2.imread(output + '0001.png')
-    cv2.imwrite(output, cv2.flip(flipped, 1))
+    cv2.imwrite(output, flipped)  #cv2.flip(flipped, 1))
     os.remove(output + '0001.png')
 
 
@@ -46,17 +46,20 @@ if __name__ == "__main__":
     else:
         image = sys.argv[1]
 
-    def filename(name):
-        return lambda number: os.path.join(path, 'results', 'partial', name, str(number) + '.png')
+    def files(name):
+        return os.path.join(path, 'results', 'cubemap', name)
 
-    rotated = filename('rotated')
-    crop = filename('crop')
-    depth = filename('depth')
-    weighted = filename('weighted')
-    reprojected = filename('reprojection')
-    validmap = filename('validmap')
-    output = filename('output')
-    outputmap = filename('outputmap')
+    def folders(name):
+        return lambda number: os.path.join(path, 'results', 'cubemap', name, str(number) + '.png')
+
+    rotated = folders('rotated')
+    crop = folders('crop')
+    depth = lambda number: os.path.join(path, 'results', 'cubemap', 'cvpr15', 'face_%s_1024'%str(number+1),'predict_depth_gray.png')#folders('depth')
+    weighted = folders('weighted')
+    reprojected = folders('reprojection')
+    validmap = folders('validmap')
+    output = folders('output')
+    outputmap = folders('outputmap')
     input_size = cv2.imread(image).shape
     # config values
     run_depth_prediction = False
@@ -64,9 +67,15 @@ if __name__ == "__main__":
     reconstruct_sphere = True
     use_cube2sphere = True
     reconstruct_in = weighted
-    fov_h = 89.99  # 60.0
+    fov_h = 90  # 60.0
     fov = (90, 90)
-    crop_size = 640
+    crop_size = 1024
+    # print("testing...")
+    # perspectiveToEquirectangular(
+    #     reconstruct_in(0), rotated(0), fov_h, crop_size, crop_size,
+    #     reprojected(0), validmap(0))
+    # print("Exiting...")
+    # sys.exit()
 
     angles = [(0, 0), (0, 90), (0, 180), (0, 270)]  # , (90, 0), (-90, 0)]
     # phi = vertical angle, theta = horizontal angle
@@ -108,20 +117,20 @@ if __name__ == "__main__":
                 depth_values[i])
             new_depths.append(new_img)
         new_depths = np.array(new_depths)
-        maxValue = np.amax(new_depths)
+        maxValue = np.amax(new_depths) * 2
         minValue = np.amin(new_depths)
         print("Max: %s, Min: %s" % (maxValue, minValue))
         for i in range(len(weights)):
             weighted_image = mapImage(
-                lambda p, i, j: (p - minValue) / (maxValue - minValue) * 255,
+                lambda p, i, j: p * 255,  #(p - minValue) / (maxValue - minValue) * 255,
                 new_depths[i])
             cv2.imwrite(weighted(i), weighted_image)
 
     # Reconstruct sphere
     if (reconstruct_sphere):
         if (use_cube2sphere):
-            cube2sphere(weighted, 'results/reconstruction_weighted.jpg')
-            cube2sphere(depth, 'results/reconstruction_depth.jpg')
+            cube2sphere(weighted, files('reconstruction_weighted.jpg'))
+            cube2sphere(depth, files('reconstruction_raw.jpg'))
         else:
             reconstructed = np.zeros((input_size[0], input_size[1]))
             for i, (phi, theta) in enumerate(angles):
@@ -140,4 +149,5 @@ if __name__ == "__main__":
                 rotateBack(
                     validmap(i), alpha, beta, gamma, writeToFile=outputmap(i))
                 reconstructed += cv2.imread(output(i), 0)
-            cv2.imwrite('results/reconstruction_weighted.jpg', reconstructed)
+            cv2.imwrite(
+                files('reconstruction_weighted_sphere.jpg'), reconstructed)

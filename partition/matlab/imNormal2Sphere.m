@@ -28,8 +28,7 @@ Px = f * tan(ANGx);
 d = sqrt(Px .^2 + f ^2);
 Py = d .* tan(ANGy);
 Px = Px + imW/2 + 1;
-Py = -Py + imH/2 + 1; 
-
+Py = -Py + imH/2 + 1;
 % outside range?
 validMap = (Px<1  ) | (Px>imW) | (Py<1  ) | (Py>imH);
 validMap = reshape(validMap, sphereH, sphereW);
