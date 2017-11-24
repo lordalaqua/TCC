@@ -23,17 +23,32 @@ def mapImage(function, image):
 
 
 def depthPrediction(image, output):
-    return not os.system('python %s/depth/runNeuralNet.py %s %s  > nul 2>&1' % (path, image, output))
+    return not os.system('python %s/depth/runNeuralNet.py %s %s  > nul 2>&1' %
+                         (path, image, output))
+
+
+def cube2sphere(faces, output):
+    try:
+        os.remove(output + '0001.png')
+    except OSError:
+        pass
+    os.system('cube2sphere %s %s %s %s %s %s -fPNG -o %s' %
+              (faces(0), faces(2), faces(1), faces(3), 'black.png',
+               'black.png', output))
+    flipped = cv2.imread(output + '0001.png')
+    cv2.imwrite(output, cv2.flip(flipped, 1))
+    os.remove(output + '0001.png')
 
 
 if __name__ == "__main__":
-    if(len(sys.argv) < 2):
+    if (len(sys.argv) < 2):
         image = 'input.jpg'
     else:
         image = sys.argv[1]
 
-    def filename(
-        name): return lambda number: os.path.join(path, 'results', 'partial', name, str(number) + '.png')
+    def filename(name):
+        return lambda number: os.path.join(path, 'results', 'partial', name, str(number) + '.png')
+
     rotated = filename('rotated')
     crop = filename('crop')
     depth = filename('depth')
@@ -47,6 +62,7 @@ if __name__ == "__main__":
     run_depth_prediction = False
     run_weighting = True
     reconstruct_sphere = True
+    use_cube2sphere = True
     reconstruct_in = weighted
     fov_h = 89.99  # 60.0
     fov = (90, 90)
@@ -57,7 +73,7 @@ if __name__ == "__main__":
     depth_values = []
     img_size = 640
     for i, (phi, theta) in enumerate(angles):
-        if(run_depth_prediction):
+        if (run_depth_prediction):
             print('Cropping at %s, %s' % (theta, phi))
 
             alpha, beta, gamma = np.radians([0, phi, -theta])
@@ -72,7 +88,7 @@ if __name__ == "__main__":
                 print('ERROR projecting perspective image.')
 
             print("%s - Begin depth prediction..." % i)
-            if(depthPrediction(crop(i), depth(i))):
+            if (depthPrediction(crop(i), depth(i))):
                 print("%s - Depth prediction OK." % i)
             else:
                 print("%s - ERROR during depth prediction." % i)
@@ -83,12 +99,13 @@ if __name__ == "__main__":
     weights = per_edge_weights(np.array(depth_values))
     print(weights)
 
-    if(run_weighting):
+    if (run_weighting):
         new_depths = []
         for i in range(len(weights)):
             w1, w2 = weights[i]
-            new_img = mapImage(lambda pixel, i, j: (
-                pixel * ((img_size - j) * w1 + j * w2) / float(img_size)), depth_values[i])
+            new_img = mapImage(
+                lambda pixel, i, j: (pixel * ((img_size - j) * abs(w1) + j * abs(w2)) / float(img_size)),
+                depth_values[i])
             new_depths.append(new_img)
         new_depths = np.array(new_depths)
         maxValue = np.amax(new_depths)
@@ -96,26 +113,31 @@ if __name__ == "__main__":
         print("Max: %s, Min: %s" % (maxValue, minValue))
         for i in range(len(weights)):
             weighted_image = mapImage(
-                lambda p, i, j: (p - minValue) /
-                (maxValue - minValue) * 255,
+                lambda p, i, j: (p - minValue) / (maxValue - minValue) * 255,
                 new_depths[i])
             cv2.imwrite(weighted(i), weighted_image)
 
     # Reconstruct sphere
-    if(reconstruct_sphere):
-        reconstructed = np.zeros((input_size[0], input_size[1]))
-        for i, (phi, theta) in enumerate(angles):
+    if (reconstruct_sphere):
+        if (use_cube2sphere):
+            cube2sphere(weighted, 'results/reconstruction_weighted.jpg')
+            cube2sphere(depth, 'results/reconstruction_depth.jpg')
+        else:
+            reconstructed = np.zeros((input_size[0], input_size[1]))
+            for i, (phi, theta) in enumerate(angles):
 
-            alpha, beta, gamma = np.radians([0, phi, -theta])
+                alpha, beta, gamma = np.radians([0, phi, -theta])
 
-            if perspectiveToEquirectangular(reconstruct_in(i), rotated(i), fov_h, crop_size, crop_size, reprojected(i), validmap(i)):
-                print('Reprojecting %s...' % i)
-            else:
-                print('ERROR projecting back to equirectangular.')
+                if perspectiveToEquirectangular(
+                        reconstruct_in(i), rotated(i), fov_h, crop_size,
+                        crop_size, reprojected(i), validmap(i)):
+                    print('Reprojecting %s...' % i)
+                else:
+                    print('ERROR projecting back to equirectangular.')
 
-            rotateBack(reprojected(i), alpha, beta,
-                       gamma, writeToFile=output(i))
-            rotateBack(validmap(i), alpha, beta,
-                       gamma, writeToFile=outputmap(i))
-            reconstructed += cv2.imread(output(i), 0)
-        cv2.imwrite('reconstruction.jpg', reconstructed)
+                rotateBack(
+                    reprojected(i), alpha, beta, gamma, writeToFile=output(i))
+                rotateBack(
+                    validmap(i), alpha, beta, gamma, writeToFile=outputmap(i))
+                reconstructed += cv2.imread(output(i), 0)
+            cv2.imwrite('results/reconstruction_weighted.jpg', reconstructed)

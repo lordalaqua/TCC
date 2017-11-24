@@ -41,21 +41,13 @@ def right(scan, edge_length):
     return edge_length - 1, scan
 
 
-center_edges = [
-    (0, right, 1, left),
-    (1, right, 2, left),
-    (2, right, 3, left),
-    (3, right, 0, left)]
+center_edges = [(0, right, 1, left), (1, right, 2, left), (2, right, 3, left),
+                (3, right, 0, left)]
 
-pole_edges = [
-    (4, top, 2, top_inv),
-    (4, left, 3, top),
-    (4, bottom, 0, top),
-    (4, right, 1, top_inv),
-    (5, top, 0, bottom),
-    (5, left, 3, bottom_inv),
-    (5, bottom, 2, bottom_inv),
-    (5, right, 1, bottom)]
+pole_edges = [(4, top, 2, top_inv), (4, left, 3, top), (4, bottom, 0, top),
+              (4, right, 1, top_inv), (5, top, 0, bottom),
+              (5, left, 3, bottom_inv), (5, bottom, 2,
+                                         bottom_inv), (5, right, 1, bottom)]
 
 
 def add_equations_to_system(system, edge, edge_length, images, num_weights):
@@ -74,8 +66,8 @@ def single_weights(images, exclude_poles=True):
     num_images = (4 if exclude_poles else 6)
     num_weights = num_images
 
-    assert(images.shape[0] == num_images)
-    assert(images.shape[1] == images.shape[2])
+    assert (images.shape[0] == num_images)
+    assert (images.shape[1] == images.shape[2])
     image_size = images.shape[1]
 
     # Non-pole edges are a special, simpler case.
@@ -105,8 +97,8 @@ def single_weights(images, exclude_poles=True):
 def per_edge_weights(images, exclude_poles=True):
     num_images = (4 if exclude_poles else 6)
 
-    assert(images.shape[0] == num_images)
-    assert(images.shape[1] == images.shape[2])
+    assert (images.shape[0] == num_images)
+    assert (images.shape[1] == images.shape[2])
     image_size = images.shape[1]
 
     # Non-pole edges are a special, simpler case.
@@ -130,10 +122,10 @@ def per_edge_weights(images, exclude_poles=True):
         system = np.array(system)
         u, s, v = np.linalg.svd(system)
         weights[(plane_a, plane_b)] = v[-1]
-
     output = [(0, 0) for x in range(num_images)]
     for i in range(num_images):
-        for (left_image, right_image), (left_weight, right_weight) in weights.iteritems():
+        for (left_image, right_image), (left_weight,
+                                        right_weight) in weights.iteritems():
             if i == left_image:
                 output[i] = (output[i][0], left_weight)
             elif i == right_image:
