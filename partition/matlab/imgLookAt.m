@@ -13,8 +13,10 @@ sphereW = size(im,2);  sphereH = size(im,1);
 
 warped_im = zeros(new_imgH,new_imgH,3);
 [TXwarp TYwarp] = meshgrid(1:new_imgH, 1:new_imgH);
-TX = TXwarp(:);                 TY = TYwarp(:);
-TX = (TX -0.5 - new_imgH/2);    TY = (TY -0.5 - new_imgH/2);
+TX = TXwarp(:);
+TY = TYwarp(:);
+TX = (TX -0.5 - new_imgH/2);
+TY = (TY -0.5 - new_imgH/2);
 % new_imgH = tan(fov/2) * R * 2
 % TX = tan(ang/2) * R
 r = new_imgH/2 / tan(fov/2);
@@ -29,7 +31,7 @@ X = sin(ANGy) .* R;
 Y = - cos(ANGy) .* R;
 Z = TX;
 
-INDn = find(abs(ANGy) > pi/2); 
+INDn = find(abs(ANGy) > pi/2);
 
 % project back to sphere
 
@@ -40,11 +42,11 @@ ANGy = atan(X ./ RZY);
 ANGx(INDn) = ANGx(INDn)+pi;
 ANGx = ANGx + CENTERx;
 
-INDy = find(ANGy < -pi/2);  
+INDy = find(ANGy < -pi/2);
 ANGy(INDy) = - pi - ANGy(INDy) ;
 ANGx(INDy) = ANGx(INDy) + pi;
 
-INDx = find(ANGx <= -pi);     ANGx(INDx) = ANGx(INDx) + 2 * pi;
+INDx = find(ANGx <= -pi);   ANGx(INDx) = ANGx(INDx) + 2 * pi;
 INDx = find(ANGx > pi);     ANGx(INDx) = ANGx(INDx) - 2 * pi;
 INDx = find(ANGx > pi);     ANGx(INDx) = ANGx(INDx) - 2 * pi;
 INDx = find(ANGx > pi);     ANGx(INDx) = ANGx(INDx) - 2 * pi;

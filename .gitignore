@@ -1,7 +1,7 @@
 depth/*
 .vscode
 *.pyc
-
+matterport/*
 collation.jpg
 reconstructed_raw.jpg
 reconstructed_weighed.jpg

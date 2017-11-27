@@ -8,16 +8,20 @@ Proceedings of 25th IEEE Conference on Computer Vision and Pattern Recognition, 
 http://sun360.mit.edu
 %}
 
+% Create arrays with pixel indices
 [TX TY] = meshgrid(1:sphereW, 1:sphereH);
 TX = TX(:);
 TY = TY(:);
 
+% convert pixel indices to angle from center of crop
 ANGx = (TX- sphereW/2 -0.5)/sphereW * pi *2 ;
 ANGy = -(TY- sphereH/2 -0.5)/sphereH * pi;
 
 % clip ANGx
-INDx = find(ANGx <= -pi/4);   ANGx(INDx) = -pi/4;
-INDx = find(ANGx >=  pi/4);   ANGx(INDx) =  pi/4;
+% INDx = find(ANGx <= -pi/4);   ANGx(INDx) = -pi/4;
+% INDx = find(ANGx >=  pi/4);   ANGx(INDx) =  pi/4;
+INDx = find(ANGx < -imHoriFOV/2);   ANGx(INDx) = -imHoriFOV/2-0.1;
+INDx = find(ANGx >  imHoriFOV/2);   ANGx(INDx) =  imHoriFOV/2+0.1;
 
 
 % convert angle to pixel of normal image
@@ -33,7 +37,6 @@ Py = -Py + imH/2 + 1;
 validMap = (Px<1  ) | (Px>imW) | (Py<1  ) | (Py>imH);
 validMap = reshape(validMap, sphereH, sphereW);
 validMap = ~validMap;
-
 INDout = find(Px<1  );   Px(INDout) = 1;  Py(INDout) = 1;
 INDout = find(Px>imW);   Px(INDout) = 1;  Py(INDout) = 1;
 INDout = find(Py<1  );   Px(INDout) = 1;  Py(INDout) = 1;
