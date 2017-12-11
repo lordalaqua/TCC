@@ -1,4 +1,5 @@
-depth/*
+depth*
+results/*
 .vscode
 *.pyc
 matterport/*
