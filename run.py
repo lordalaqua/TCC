@@ -2,13 +2,14 @@ import os
 import sys
 
 import numpy as np
+from scipy import interpolate
 import cv2
 
 from partition.rotateSphere import rotateSphere, rotateBack
 from partition.perspectiveToEquirectangular import perspectiveToEquirectangular
 from partition.equirectangularToPerspective import equirectangularToPerspective
 
-from weights.cubeMap import per_edge_weights
+from weights.planes import find_weights
 
 path = os.path.dirname(os.path.realpath(__file__))
 
@@ -37,46 +38,48 @@ if __name__ == "__main__":
         image = 'input.jpg'
     else:
         image = sys.argv[1]
-    input_size = cv2.imread(image).shape
+    input_image = cv2.imread(image)
+    input_size = input_image.shape
 
     # config values
+    run_cropping = False
     run_depth_prediction = False
-    run_weighting = True
+    run_reprojection = False
+    run_weighting = False
     reconstruct_sphere = True
-    calculate_weights = per_edge_weights
+    # reconstruct_from_raw_depth = False
+    calculate_weights = find_weights
     fov_h = 90
     crop_size = 640
     angles = [(0, x * 45) for x in range(8)]
     results_folder = 'results'
     subfolder = 'planes'
+    basefolder = os.path.join(path, results_folder, subfolder)
 
     # Define files and folder names for storing result images
     def files(name):
-        return os.path.join(path, results_folder, subfolder, name)
+        return os.path.join(basefolder, name)
 
     def folders(name):
-        return lambda number: os.path.join(path, results_folder, subfolder, name, str(number) + '.png')
-
-    def folderName(name):
-        return os.path.join(path, results_folder, subfolder, name)
+        return lambda number: os.path.join(basefolder, name, str(number) + '.png')
 
     rotated = folders('rotated')
     crop = folders('crop')
+    cropsFolder = files('crop')
+    depthFolder = files('depth')
 
-    def depth(number): return os.path.join(path, results_folder, subfolder, 'cvpr15',
-                                           'face_%s_1024' % str(number + 1), 'predict_depth_gray.png')  # folders('depth')
+    def depth(number): return os.path.join(
+        depthFolder, str(number), 'predict_depth_gray.png')
+
     weighted = folders('weighted')
     reprojected = folders('reprojection')
     validmap = folders('validmap')
-    output = folders('output')
-    outputmap = folders('outputmap')
+    rotatedBack = folders('rotatedBack')
+    rotatedBackmap = folders('rotatedBackmap')
+    reconstruction = folders('reconstruction')
 
-    # Set which images should be used for sphere reconstruction
-    reconstruct_in = weighted
-
-    depth_values = []
     # phi = vertical angle, theta = horizontal angle
-    if (run_depth_prediction):
+    if (run_cropping):
         for i, (phi, theta) in enumerate(angles):
             print('Cropping at %s, %s' % (theta, phi))
 
@@ -93,54 +96,96 @@ if __name__ == "__main__":
 
     if (run_depth_prediction):
         print("%s - Begin depth prediction..." % i)
-        if (depthFayao(folderName('crop'), folderName('depth'))):
+        if (depthFayao(cropsFolder, depthFolder)):
             print("%s - Depth prediction OK." % i)
         else:
             print("%s - ERROR during depth prediction." % i)
 
-    # Run solving algorithm
-    weights = calculate_weights(np.array(depth_values))
-    print(weights)
-
-    if (run_weighting):
+    if(run_reprojection):
         for i, (phi, theta) in enumerate(angles):
-            depth_values.append(cv2.imread(
-                depth(i), 0).astype(np.float32) / 255.0)
-        new_depths = []
-        for i in range(len(weights)):
-            w1, w2 = weights[i]
-            new_img = mapImage(
-                lambda pixel, i, j: (
-                    pixel * ((crop_size - j) * abs(w1) + j * abs(w2)) / float(crop_size)),
-                depth_values[i])
-            new_depths.append(new_img)
-        new_depths = np.array(new_depths)
-        maxValue = np.amax(new_depths)
-        minValue = np.amin(new_depths)
-
-        def normalize(p): return (p - minValue) / (maxValue - minValue) * 255
-        for i in range(len(weights)):
-            weighted_image = mapImage(lambda p, i, j: p * 255, new_depths[i])
-            cv2.imwrite(weighted(i), weighted_image)
-
-    # Reconstruct sphere
-    if (reconstruct_sphere):
-        reconstructed = np.zeros((input_size[0], input_size[1]))
-        for i, (phi, theta) in enumerate(angles):
-
             alpha, beta, gamma = np.radians([0, phi, -theta])
-
             if perspectiveToEquirectangular(
                     reconstruct_in(i), rotated(i), fov_h, crop_size,
                     crop_size, reprojected(i), validmap(i)):
                 print('Reprojecting %s...' % i)
             else:
                 print('ERROR projecting back to equirectangular.')
+            rotateBack(
+                reprojected(i), alpha, beta, gamma, writeToFile=rotatedBack(i))
+            rotateBack(
+                validmap(i), alpha, beta, gamma, writeToFile=rotatedBackmap(i))
 
+    if (run_weighting):
+        print('Begin weighting...')
+        depth_images = []
+        validmap_images = []
+        for i, (phi, theta) in enumerate(angles):
+            depth_images.append(cv2.imread(
+                rotatedBack(i), 0).astype(np.float32))
+            validmap_images.append(cv2.imread(rotatedBackmap(i), 0))
+        depth_images = np.array(depth_images)
+        validmap_images = np.array(validmap_images)
+        # Run solving algorithm
+        plane_weights = calculate_weights(
+            depth_images, validmap_images, input_image)
+        print('Weights calculated, interpolating...')
+        # Interpolate centered depths to avoid interpolation over image edge
+        left_edge = input_size[1] / 8 * 3.0
+        right_edge = input_size[1] / 8 * 5.0
+        weighted_depths = []
+        for plane, weights in enumerate(plane_weights):
+            yL = np.array(range(weights['left'].shape[0])) + weights['bound']
+            xL = np.ones(yL.shape) * left_edge
+            yR = np.array(range(weights['right'].shape[0])) + weights['bound']
+            xR = np.ones(yR.shape) * right_edge
+            y = np.append(yL, yR)
+            x = np.append(xL, xR)
+            z = np.append(weights['left'], weights['right'])
+            interpolated = interpolate.interp2d(x, y, z)
+            raw = cv2.imread(reprojected(plane), 0)
+            valid = cv2.imread(validmap(plane), 0)
+            weighted_depth = np.zeros(raw.shape)
+            for i in range(raw.shape[0]):
+                for j in range(raw.shape[1]):
+                    if(valid.item(i, j) == 255):
+                        weighted_depth.itemset(i, j, raw.item(
+                            i, j) * interpolated(j, i))
+            weighted_depths.append(weighted_depth)
+        print('Interpolation complete, normalizing...')
+        weighted_depths = np.array(weighted_depths)
+        maxValue = np.amax(weighted_depths)
+        minValue = np.amin(weighted_depths)
+
+        def normalize(p):
+            if p != 0:
+                return (p - minValue) / (maxValue - minValue) * 255
+            else:
+                return 0
+        for i in range(len(plane_weights)):
+            weighted_image = mapImage(
+                lambda p, i, j: normalize(p), weighted_depths[i])
+            cv2.imwrite(weighted(i), weighted_image)
+    # Reconstruct sphere
+    if (reconstruct_sphere):
+        reconstructed = np.zeros((input_size[0], input_size[1]))
+        planes = []
+        for i, (phi, theta) in enumerate(angles):
+            alpha, beta, gamma = np.radians([0, phi, -theta])
             rotateBack(
-                reprojected(i), alpha, beta, gamma, writeToFile=output(i))
-            rotateBack(
-                validmap(i), alpha, beta, gamma, writeToFile=outputmap(i))
-            reconstructed += cv2.imread(output(i), 0)
+                weighted(i), alpha, beta, gamma, writeToFile=reconstruction(i))
+            planes.append(cv2.imread(reconstruction(i), 0))
+
+        def averageImages(p, i, j):
+            values = []
+            for k in range(len(planes)):
+                v = planes[k].item(i, j)
+                if(v != 0):
+                    values.append(v)
+            if(len(values) > 0):
+                return values[-1]  # sum(values) / float(len(values))
+            else:
+                return 0
+
+        reconstructed = mapImage(averageImages, reconstructed)
         cv2.imwrite(
-            files('reconstruction_weighted_sphere.jpg'), reconstructed)
+            files('reconstructed_sphere.jpg'), reconstructed)
