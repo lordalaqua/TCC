@@ -167,6 +167,7 @@ if __name__ == "__main__":
             cv2.imwrite(weighted(i), weighted_image)
     # Reconstruct sphere
     if (reconstruct_sphere):
+        print('Reconstructing spherical image...')
         reconstructed = np.zeros((input_size[0], input_size[1]))
         planes = []
         for i, (phi, theta) in enumerate(angles):
@@ -182,7 +183,7 @@ if __name__ == "__main__":
                 if(v != 0):
                     values.append(v)
             if(len(values) > 0):
-                return values[-1]  # sum(values) / float(len(values))
+                return sum(values) / float(len(values))
             else:
                 return 0
 
