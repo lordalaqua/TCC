@@ -8,6 +8,7 @@ def find_weights(depths, validmap, color):
     pairs = [(x, x + 1 if x + 1 < num_planes else 0)
              for x in range(num_planes)]
     weights = {}
+    overlaps = {}
     overlap_bound = {}
     for planeL, planeR in pairs:
         # Find overlapping coordinates
@@ -32,36 +33,44 @@ def find_weights(depths, validmap, color):
         for i, j in overlap:
             # Add equations for depths
             equation = np.zeros(num_weights)
-            equation.itemset(i - overlap_min, depths.item(planeL, i, j))
-            equation.itemset(i - overlap_min + num_lines, -
-                             depths.item(planeR, i, j))
+            depth_a = depths.item(planeL, i, j)
+            depth_b = depths.item(planeR, i, j)
+            equation.itemset(i - overlap_min, depth_a)
+            equation.itemset(i - overlap_min + num_lines, -depth_b)
             system.append(equation)
             # Add equations between weights
             if i < overlap_max:
-                current = np.array([color.item(i, j, x) for x in range(3)])
-                next = np.array([color.item(i + 1, j, x) for x in range(3)])
-                tolerance = 5
-                if(np.isclose(current, next, tolerance).all()):
-                    # Add equation for planeL weights
-                    equation = np.zeros(num_weights)
-                    equation.itemset(i - overlap_min, 1)
-                    equation.itemset(i - overlap_min + 1, -1)
-                    system.append(equation)
-                    # Add equation for planeR weights
-                    equation = np.zeros(num_weights)
-                    equation.itemset(i - overlap_min + num_lines, 1)
-                    equation.itemset(i - overlap_min + num_lines + 1, -1)
-                    system.append(equation)
+                # current = np.array([color.item(i, j, x) for x in range(3)])
+                # next = np.array([color.item(i + 1, j, x) for x in range(3)])
+                # difference = abs(sum(next - current))
+                v = 1000
+                # Add equation for planeL weights
+                equation = np.zeros(num_weights)
+                equation.itemset(i - overlap_min, v)
+                equation.itemset(i - overlap_min + 1, -v)
+                system.append(equation)
+                # print(equation)
+                # raw_input("...")
+                # Add equation for planeR weights
+                equation = np.zeros(num_weights)
+                equation.itemset(i - overlap_min + num_lines, v)
+                equation.itemset(i - overlap_min + num_lines + 1, -v)
+                system.append(equation)
         # Solve system
         system = np.array(system)
         u, s, v = np.linalg.svd(system, full_matrices=False)
-        weights[(planeL, planeR)] = (v[-1][:num_lines], v[-1][num_lines:])
-        overlap_bound[(planeL, planeR)] = overlap_min
+        solution = v[-1] * 10
+        weights[(planeL, planeR)] = (
+            solution[:num_lines], solution[num_lines:])
+        overlaps[(planeL, planeR)] = overlap
+        overlap_bound[(planeL, planeR)] = (overlap_min, overlap_max)
     # Sort weights by plane
     weights_by_plane = [{} for x in range(len(weights))]
     for (planeL, planeR), (weightsL, weightsR) in weights.iteritems():
         weights_by_plane[planeL]['left'] = np.absolute(weightsL)
+        weights_by_plane[planeL]['overlapLeft'] = overlaps[(planeL, planeR)]
         weights_by_plane[planeL]['bound'] = overlap_bound[(planeL, planeR)]
         weights_by_plane[planeR]['right'] = np.absolute(weightsR)
+        weights_by_plane[planeR]['overlapRight'] = overlaps[(planeL, planeR)]
         weights_by_plane[planeR]['bound'] = overlap_bound[(planeL, planeR)]
     return weights_by_plane
