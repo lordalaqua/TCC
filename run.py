@@ -145,76 +145,69 @@ if __name__ == "__main__":
         plane_weights = calculate_weights(
             depth_images, validmap_images, input_image)
         print('Weights calculated, interpolating...')
-        # Interpolate centered depths to avoid interpolation over image edge
-        left_edge = input_size[1] / 8 * 3.0
-        right_edge = input_size[1] / 8 * 5.0
         weighted_depths = []
         for plane, weights in enumerate(plane_weights):
-
-            # xL = np.ones(yL.shape) * left_edge
-            # yR = np.array(range(weights['right'].shape[0])) + weights['bound']
-            # xR = np.ones(yR.shape) * right_edge
-            # y = np.append(yL, yR)
-            # x = np.append(xL, xR)
-            # z = np.append(weights['left'], weights['right'])
-            # interpolated = interpolate.interp2d(x, y, z)
             left_weights = weights['left']
             right_weights = weights['right']
-            min_bound, max_bound = weights['bound']
+            top_L, bottom_L, left_L, right_L = weights['boundsLeft']
+            top_R, bottom_R, left_R, right_R = weights['boundsRight']
+            top_bound = top_L
+            bottom_bound = bottom_L
             # Plot weights
-            yL = np.array(range(left_weights.shape[0])) + min_bound
+            yL = np.array(range(left_weights.shape[0])) + top_bound
             pyplot.plot(yL, left_weights, label="%sL" % plane)
             pyplot.plot(yL, right_weights, label="%sR" % plane)
             pyplot.xlabel('index')
             pyplot.ylabel('weight')
             pyplot.grid(True)
             pyplot.legend(loc="best")
+
+            weightsByCoord = {}
+            left_bounds = np.zeros(len(left_weights))
+            right_bounds = np.ones(len(right_weights)) * input_size[1]
+            for [i, j] in weights['overlapLeft']:
+                index = i - top_bound
+                left_bounds[index] = max(left_bounds[index], j)
+                weightsByCoord[(i, j)] = left_weights[index]
+            for [i, j] in weights['overlapRight']:
+                index = i - top_bound
+                right_bounds[index] = min(right_bounds[index], j)
+                weightsByCoord[(i, j)] = right_weights[index]
             raw = cv2.imread(rotatedBack(plane), 0)
             valid = cv2.imread(rotatedBackmap(plane), 0)
-            weighted_depth = raw
-            for [i, j] in weights['overlapLeft']:
-                weighted_depth.itemset(i, j, raw.item(
-                    i, j) * left_weights[i - min_bound])
-            for [i, j] in weights['overlapRight']:
-                weighted_depth.itemset(i, j, raw.item(
-                    i, j) * right_weights[i - min_bound])
-            # for i in range(weighted_depth.shape[0]):
-            #     for j in range(weighted_depth.shape[1]):
-            #         if [i, j] in weights['overlapLeft']:
-            #             weighted_depth.itemset(i, j, weighted_depth.item(
-            #                 i, j) * left_weights[i - min_bound])
-            #         elif [i, j] in weights['overlapRight']:
-            #             weighted_depth.itemset(i, j, weighted_depth.item(
-            #                 i, j) * right_weights[i - min_bound])
-            #         elif i > min_bound and i < max_bound:
-            #             weighted_depth.itemset(i, j, weighted_depth.item(
-            #                 i, j) * right_weights[i - min_bound])
+            weighted_depth = np.zeros(raw.shape)
+            for i in range(weighted_depth.shape[0]):
+                for j in range(weighted_depth.shape[1]):
+                    if valid.item(i, j) == 255:
+                        if (i, j) in weightsByCoord:
+                            weighted_depth.itemset(i, j, raw.item(
+                                i, j) * weightsByCoord[(i, j)])
+                        else:
+                            if i < top_bound:
+                                index = 0
+                            elif i >= bottom_bound:
+                                index = len(left_weights) - 1
+                            else:
+                                index = i - top_bound
+                            left_weight = left_weights[index]
+                            right_weight = right_weights[index]
+                            left_bound = left_bounds[index]
+                            right_bound = right_bounds[index]
+                            column = float(j)
+                            if left_bound > right_bound:
+                                right_bound += input_size[1]
+                                if column < left_bound:
+                                    column += input_size[1]
 
-            # def apply_weights(value, i, j):
-            #     if [i, j] in :
-            #         if(i - weights['bound'] > 241):
-            #             print(i, j)
-            #         return value *
-            #     elif [i, j] in weights['overlapRight']:
-            #         return value * weights['right'][i - weights['bound']]
-            #     else:
-            #         return value
-                # if(valid.item(i, j) == 255):
-                #     index = i - weights['bound']
-                #     if(index > 0 and index < yL.shape[0]):
-                #         if(j < input_size[1] / 2):
-                #             weighted_depth.itemset(
-                #                 i, j, weights['left'][index] * 1000)
-                #         if(j > input_size[1] / 2):
-                #             weighted_depth.itemset(
-                #                 i, j, weights['right'][index] * 1000)
-                # weighted_depth.itemset(i, j, raw.item(
-                #     i, j) * interpolated(j, i))
-            # weighted_depth = mapImage(apply_weights, raw)
-            # for i in range(raw.shape[0]):
-            #     for j in range(raw.shape[1]):
+                            def linear_interpolate(x, x1, x0, y1, y0):
+                                return y0 + (x - x0) * ((y1 - y0) / (x1 - x0))
+                            weight = linear_interpolate(
+                                column, left_bound, right_bound, left_weight, right_weight)
+                            weighted_depth.itemset(
+                                i, j, raw.item(i, j) * weight)
 
             weighted_depths.append(weighted_depth)
+
         pyplot.savefig(getFilename("weightsPlot.png"))
         print('Interpolation complete, normalizing...')
         weighted_depths = np.array(weighted_depths)
@@ -236,9 +229,6 @@ if __name__ == "__main__":
         print('Reconstructing spherical image...')
         planes = []
         for i, (phi, theta) in enumerate(angles):
-            # alpha, beta, gamma = np.radians([0, phi, -theta])
-            # rotateBack(
-            #     weighted(i), alpha, beta, gamma, writeToFile=reconstruction(i))
             planes.append(cv2.imread(weighted(i), 0))
 
         # Reconstruct a colormapped depth
@@ -248,7 +238,7 @@ if __name__ == "__main__":
                 for j in range(reconstructed.shape[1]):
                     pixel = planes[k].item(i, j)
                     if pixel != 0:
-                        reconstructed.itemset(i, j, k % 2 + 1, pixel)
+                        reconstructed.itemset(i, j, (k % 2) * 2, pixel * 2)
         cv2.imwrite(getFilename('colormap.jpg'), reconstructed)
 
         difference = np.zeros((input_size[0], input_size[1]))
@@ -264,5 +254,10 @@ if __name__ == "__main__":
                     average.itemset(i, j, sum(values) / len(values))
                     if len(values) == 2:
                         difference.itemset(i, j, abs(values[0] - values[1]))
+        # maxDiff = np.amax(difference)
+        # minDiff = np.amin(difference)
+        # difference = mapImage(lambda p, i, j: (
+        #     p - minDiff) / (maxDiff - minDiff) * 255, difference)
+        difference = difference * 2
         cv2.imwrite(getFilename('difference.jpg'), difference)
         cv2.imwrite(getFilename('average.jpg'), average)
