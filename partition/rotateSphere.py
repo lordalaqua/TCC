@@ -8,6 +8,7 @@ from numpy import *
 from numpy.linalg import norm, inv, det
 
 from scipy.optimize import least_squares, root, minimize, leastsq
+from scipy.io import loadmat, savemat
 
 from time import time
 from numpy import *
@@ -87,16 +88,27 @@ if __name__ == '__main__':
     cv2.imwrite('rotated-' + sys.argv[-4], im.getEquirectangular())
 
 
-def rotateSphere(image, alpha, beta, gamma, writeToFile=None):
-    sphere = SphericalImage(cv2.imread(image))
+def rotateSphere(image, alpha, beta, gamma, writeToFile=None, use_mat=False):
+    if use_mat:
+        data = loadmat(image)
+        data = data['data_obj']
+        data = data.reshape((data.shape[0], data.shape[1], 1))
+    else:
+        data = cv2.imread(image)
+    sphere = SphericalImage(data)
     sphere.rotate(composeRotationMatrix(alpha, beta, gamma))
     if(writeToFile):
-        cv2.imwrite(writeToFile, sphere.getEquirectangular())
+        eq = sphere.getEquirectangular()
+        if use_mat:
+            eq = eq.reshape((eq.shape[0], eq.shape[1]))
+            savemat(writeToFile, {'data_obj': eq})
+        else:
+            cv2.imwrite(writeToFile, eq)
         return writeToFile
     else:
-        return sphere.getEquirectangular
+        return sphere.getEquirectangular()
 
 
-def rotateBack(image, alpha, beta, gamma, writeToFile=None):
+def rotateBack(image, alpha, beta, gamma, writeToFile=None, use_mat=False):
     a, b, c = eulerFromR(composeRotationMatrix(alpha, beta, gamma).T)
-    return rotateSphere(image, a, b, c, writeToFile)
+    return rotateSphere(image, a, b, c, writeToFile, use_mat)

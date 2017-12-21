@@ -2,7 +2,7 @@ import os
 import sys
 
 import numpy as np
-from scipy import interpolate
+from scipy.io import loadmat
 import cv2
 
 from partition.rotateSphere import rotateSphere, rotateBack
@@ -10,7 +10,7 @@ from partition.perspectiveToEquirectangular import perspectiveToEquirectangular
 from partition.equirectangularToPerspective import equirectangularToPerspective
 from matplotlib import pyplot
 
-from weights.planes import find_weights
+from weights.lines import find_weights
 import argparse
 
 # Config variables
@@ -24,25 +24,29 @@ def getFilename(name):
     return os.path.join(basefolder, name)
 
 
-def resultsFolder(name):
+def resultsFolderImage(name):
     return lambda number: os.path.join(basefolder, name, str(number) + '.png')
+
+
+def resultsFolderMat(name):
+    return lambda number: os.path.join(basefolder, name, str(number) + '.mat')
 
 
 def resultsFolderSubFile(folder, file):
     return lambda number: os.path.join(folder, str(number), file)
 
 
-rotated = resultsFolder('rotated')
-crop = resultsFolder('crop')
+rotated = resultsFolderImage('rotated')
+crop = resultsFolderImage('crop')
 cropsFolder = getFilename('crop')
 depthFolder = getFilename('depth')
-depth = resultsFolderSubFile(depthFolder, 'predict_depth_gray.png')
-weighted = resultsFolder('weighted')
-reprojected = resultsFolder('reprojection')
-validmap = resultsFolder('validmap')
-rotatedBack = resultsFolder('rotatedBack')
-rotatedBackmap = resultsFolder('rotatedBackmap')
-reconstruction = resultsFolder('reconstruction')
+depth = resultsFolderSubFile(depthFolder, 'predict_depth.mat')
+weighted = resultsFolderImage('weighted')
+reprojected = resultsFolderMat('reprojection')
+validmap = resultsFolderMat('validmap')
+rotatedBack = resultsFolderMat('rotatedBack')
+rotatedBackmap = resultsFolderMat('rotatedBackmap')
+reconstruction = resultsFolderImage('reconstruction')
 
 
 def mapImage(function, image):
@@ -62,6 +66,10 @@ def depthEigen(image, output):
 def depthFayao(image, output):
     return not os.system('matlab -nodisplay -nosplash -nodesktop -r -wait "cd %s; demo_modified %s %s; exit;"' %
                          (os.path.join(SCRIPT_PATH, 'depth-fayao', 'demo'), image, output))
+
+
+def linear_interpolate(x, x1, x0, y1, y0):
+    return y0 + (x - x0) * ((y1 - y0) / (x1 - x0))
 
 
 if __name__ == "__main__":
@@ -107,6 +115,8 @@ if __name__ == "__main__":
                 print('Saving %s' % crop(i))
             else:
                 print('ERROR projecting perspective image.')
+    else:
+        print('Skipping crop...')
 
     if (run_depth_prediction):
         print("%s - Begin depth prediction..." % i)
@@ -114,20 +124,24 @@ if __name__ == "__main__":
             print("%s - Depth prediction OK." % i)
         else:
             print("%s - ERROR during depth prediction." % i)
+    else:
+        print('Skipping depth prediction...')
 
     if(run_reprojection):
         for i, (phi, theta) in enumerate(angles):
             alpha, beta, gamma = np.radians([0, phi, -theta])
             if perspectiveToEquirectangular(
-                    reconstruct_in(i), rotated(i), fov_h, crop_size,
-                    crop_size, reprojected(i), validmap(i)):
+                    depth(i), rotated(i), fov_h, crop_size,
+                    crop_size, reprojected(i), validmap(i), use_mat=1):
                 print('Reprojecting %s...' % i)
             else:
                 print('ERROR projecting back to equirectangular.')
-            rotateBack(
-                reprojected(i), alpha, beta, gamma, writeToFile=rotatedBack(i))
-            rotateBack(
-                validmap(i), alpha, beta, gamma, writeToFile=rotatedBackmap(i))
+            rotateBack(reprojected(i), alpha, beta, gamma,
+                       writeToFile=rotatedBack(i), use_mat=True)
+            rotateBack(validmap(i), alpha, beta, gamma,
+                       writeToFile=rotatedBackmap(i), use_mat=True)
+    else:
+        print('Skipping reprojection...')
 
     if (run_weighting):
         print('Begin weighting...')
@@ -135,9 +149,10 @@ if __name__ == "__main__":
         depth_images = []
         validmap_images = []
         for i, (phi, theta) in enumerate(angles):
-            depth_images.append(cv2.imread(
-                rotatedBack(i), 0).astype(np.float32))
-            validmap_images.append(cv2.imread(rotatedBackmap(i), 0))
+            d = loadmat(rotatedBack(i))
+            v = loadmat(rotatedBackmap(i))
+            depth_images.append(d['data_obj'])
+            validmap_images.append(v['data_obj'])
         depth_images = np.array(depth_images)
         validmap_images = np.array(validmap_images)
 
@@ -173,15 +188,39 @@ if __name__ == "__main__":
                 index = i - top_bound
                 right_bounds[index] = min(right_bounds[index], j)
                 weightsByCoord[(i, j)] = right_weights[index]
-            raw = cv2.imread(rotatedBack(plane), 0)
-            valid = cv2.imread(rotatedBackmap(plane), 0)
+            raw = depth_images[plane]
+            valid = validmap_images[plane]
             weighted_depth = np.zeros(raw.shape)
+
+            def interpolate_weight(i,j, left_bound ,right_bound):
+                left_weight = left_weights[i]
+                right_weight = right_weights[i]
+                column = float(j)
+                if left_bound > right_bound:
+                    right_bound += input_size[1]
+                    if column < left_bound:
+                        column += input_size[1]
+                return linear_interpolate(column, left_bound, right_bound, left_weight, right_weight)
+
+            max_depth = 0
+            min_depth = 1000
+            interp_region = 40
             for i in range(weighted_depth.shape[0]):
                 for j in range(weighted_depth.shape[1]):
-                    if valid.item(i, j) == 255:
+                    if valid.item(i, j) == 1:
+                        depth_value = raw.item(i, j)
                         if (i, j) in weightsByCoord:
-                            weighted_depth.itemset(i, j, raw.item(
-                                i, j) * weightsByCoord[(i, j)])
+                            index = i - top_bound
+                            left_bound = left_bounds[index]
+                            right_bound = right_bounds[index]
+                            diff = right_bound - left_bound
+                            left_bound -= interp_region
+                            right_bound += interp_region
+                            if j > left_bound and j < right_bound:
+                                weight = interpolate_weight(index, j, left_bound, right_bound)
+                            else:
+                                weight = weightsByCoord[(i, j)]
+                            weighted_value = depth_value * weight
                         else:
                             if i < top_bound:
                                 index = 0
@@ -189,48 +228,41 @@ if __name__ == "__main__":
                                 index = len(left_weights) - 1
                             else:
                                 index = i - top_bound
-                            left_weight = left_weights[index]
-                            right_weight = right_weights[index]
-                            left_bound = left_bounds[index]
-                            right_bound = right_bounds[index]
-                            column = float(j)
-                            if left_bound > right_bound:
-                                right_bound += input_size[1]
-                                if column < left_bound:
-                                    column += input_size[1]
-
-                            def linear_interpolate(x, x1, x0, y1, y0):
-                                return y0 + (x - x0) * ((y1 - y0) / (x1 - x0))
-                            weight = linear_interpolate(
-                                column, left_bound, right_bound, left_weight, right_weight)
-                            weighted_depth.itemset(
-                                i, j, raw.item(i, j) * weight)
+                            left_bound = left_bounds[index] - interp_region
+                            right_bound = right_bounds[index] + interp_region
+                            weight = interpolate_weight(index, j, left_bound, right_bound)
+                            weighted_value = depth_value * weight
+                        weighted_depth.itemset(i, j, weighted_value)
+                        min_depth = min(min_depth, weighted_value)
+                        max_depth = max(max_depth, weighted_value)
 
             weighted_depths.append(weighted_depth)
 
         pyplot.savefig(getFilename("weightsPlot.png"))
         print('Interpolation complete, normalizing...')
         weighted_depths = np.array(weighted_depths)
-        maxValue = np.amax(weighted_depths)
-        minValue = np.amin(weighted_depths)
-        print('Min: %s, Max: %s' % (minValue, maxValue))
+        print('Min: %s, Max: %s' % (min_depth, max_depth))
 
         def normalize(p):
             if p != 0:
-                return (p - minValue) / (maxValue - minValue) * 255
+                return (p - min_depth) / (max_depth - min_depth) * 255
             else:
                 return 0
         for i in range(len(plane_weights)):
-            # weighted_image = mapImage(
-            #     lambda p, i, j: p, weighted_depths[i])
-            cv2.imwrite(weighted(i), weighted_depths[i])
+            weighted_image = mapImage(
+                lambda p, i, j: normalize(p), weighted_depths[i])
+            cv2.imwrite(weighted(i), weighted_image)
     # Reconstruct sphere
     if (reconstruct_sphere):
         print('Reconstructing spherical image...')
         planes = []
+        valid_pixels = []
         for i, (phi, theta) in enumerate(angles):
             planes.append(cv2.imread(weighted(i), 0))
-
+            v = loadmat(rotatedBackmap(i))
+            valid_pixels.append(v['data_obj'])
+        planes = np.array(planes)
+        valid_pixels = np.array(valid_pixels)
         # Reconstruct a colormapped depth
         reconstructed = np.zeros((input_size[0], input_size[1], 3))
         for k in range(len(planes)):
@@ -238,26 +270,55 @@ if __name__ == "__main__":
                 for j in range(reconstructed.shape[1]):
                     pixel = planes[k].item(i, j)
                     if pixel != 0:
-                        reconstructed.itemset(i, j, (k % 2) * 2, pixel * 2)
+                        reconstructed.itemset(i, j, (k % 2) * 2, pixel)
         cv2.imwrite(getFilename('colormap.jpg'), reconstructed)
-
+        
         difference = np.zeros((input_size[0], input_size[1]))
         average = np.zeros((input_size[0], input_size[1]))
         for i in range(difference.shape[0]):
             for j in range(difference.shape[1]):
                 values = []
                 for k in range(len(planes)):
-                    pixel = planes[k].item(i, j)
+                    pixel = planes.item(k, i, j)
                     if(pixel != 0):
                         values.append(pixel)
                 if len(values) > 0:
                     average.itemset(i, j, sum(values) / len(values))
                     if len(values) == 2:
                         difference.itemset(i, j, abs(values[0] - values[1]))
+        # # Normalize difference
         # maxDiff = np.amax(difference)
         # minDiff = np.amin(difference)
         # difference = mapImage(lambda p, i, j: (
         #     p - minDiff) / (maxDiff - minDiff) * 255, difference)
-        difference = difference * 2
         cv2.imwrite(getFilename('difference.jpg'), difference)
         cv2.imwrite(getFilename('average.jpg'), average)
+
+        blend = np.zeros((input_size[0], input_size[1]))
+        pairs = [(x, x + 1 if x + 1 < len(angles) else 0) for x in range(len(angles))]
+        for planeL, planeR in pairs:
+            step = input_size[1] / len(planes)
+            left = (planeL+4) % 8 * step
+            right = (planeR+4) % 8 * step
+            col_offset = 0
+            if right < left:
+                right += input_size[1]
+                col_offset = input_size[1]
+            
+            for i in range(input_size[0]):
+                for j in range(left,right):
+                    validL = valid_pixels.item(planeL,i,j)
+                    validR = valid_pixels.item(planeR,i,j)
+                    pixel = 0
+                    column = j
+                    if validL and validR:
+                        alpha = float(column - left)/float(right-left)
+                        pixel = (1-alpha)*planes.item(planeL,i,j) + alpha * planes.item(planeR,i,j)
+                    elif validL:
+                        pixel = planes.item(planeL,i,j)
+                    elif validR:
+                        pixel = planes.item(planeR,i,j)
+                    # set pixel
+                    if pixel:
+                        blend.itemset(i, j, pixel)
+        cv2.imwrite(getFilename('blend.jpg'), blend)
