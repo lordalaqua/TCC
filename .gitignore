@@ -5,3 +5,4 @@ results/cubemap
 results/sphereCNN
 .vscode
 *.pyc
+matterport

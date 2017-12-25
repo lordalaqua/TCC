@@ -47,7 +47,7 @@ def find_weights(depths, validmap, color):
                 next = np.array([color.item(i + 1, j, x) for x in range(3)])
                 difference = abs(sum(next - current))
                 v = 5
-                if difference < 20:
+                if difference < 10:
                     v = 50
                 equation = np.zeros(num_weights)
                 equation.itemset(i - overlap_top, v)
@@ -82,3 +82,5 @@ def find_weights(depths, validmap, color):
         weights_by_plane[planeR]['boundsLeft'] = overlap_bound[(
             planeL, planeR)]
     return weights_by_plane
+
+
