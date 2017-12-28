@@ -104,7 +104,7 @@ def rotateSphere(image, alpha, beta, gamma, writeToFile=None, use_mat=False):
             savemat(writeToFile, {'data_obj': eq})
         else:
             cv2.imwrite(writeToFile, eq)
-        return writeToFile
+        return eq
     else:
         return sphere.getEquirectangular()
 

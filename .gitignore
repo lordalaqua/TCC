@@ -1,8 +1,10 @@
 depth-eigen
 depth-fayao
 predict_depth_rgb.png
-results/cubemap
-results/sphereCNN
+results
+dataset
 .vscode
 *.pyc
 matterport
+cnn-equirectangular.jpg
+input.*

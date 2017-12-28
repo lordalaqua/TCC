@@ -45,6 +45,7 @@ weighted = resultsFolderMat('weighted')
 reprojected = resultsFolderMat('reprojection')
 validmap = resultsFolderMat('validmap')
 rotatedBack = resultsFolderMat('rotatedBack')
+rotatedBackImage = resultsFolderImage('rotatedBack')
 rotatedBackmap = resultsFolderMat('rotatedBackmap')
 
 
@@ -132,11 +133,11 @@ if __name__ == "__main__":
         print('Skipping crop...')
 
     if (run_depth_prediction):
-        print("%s - Begin depth prediction..." % i)
+        print("Begin depth prediction...")
         if (depthFayao(cropsFolder, depthFolder)):
-            print("%s - Depth prediction OK." % i)
+            print(" Depth prediction OK." )
         else:
-            print("%s - ERROR during depth prediction." % i)
+            print("ERROR during depth prediction.")
     else:
         print('Skipping depth prediction...')
 
@@ -149,8 +150,9 @@ if __name__ == "__main__":
                 print('Reprojecting %s...' % i)
             else:
                 print('ERROR projecting back to equirectangular.')
-            rotateBack(reprojected(i), alpha, beta, gamma,
+            v = rotateBack(reprojected(i), alpha, beta, gamma,
                        writeToFile=rotatedBack(i), use_mat=True)
+            # imwriteNormalize(rotatedBackImage(i), v)
             rotateBack(validmap(i), alpha, beta, gamma,
                        writeToFile=rotatedBackmap(i), use_mat=True)
     else:
@@ -169,84 +171,8 @@ if __name__ == "__main__":
 
         # Run solving algorithm
         plane_weights = calculate_weights(
-            depth_images, validmap_images, input_image)
-        print('Weights calculated, interpolating...')
-        weighted_depths = []
-        for plane, weights in enumerate(plane_weights):
-            left_weights = weights['left']
-            right_weights = weights['right']
-            top_L, bottom_L, left_L, right_L = weights['boundsLeft']
-            top_R, bottom_R, left_R, right_R = weights['boundsRight']
-            top_bound = top_L
-            bottom_bound = bottom_L
-            # Plot weights
-            yL = np.array(range(left_weights.shape[0])) + top_bound
-            pyplot.plot(yL, left_weights, label="%sL" % plane)
-            pyplot.plot(yL, right_weights, label="%sR" % plane)
-            pyplot.xlabel('index')
-            pyplot.ylabel('weight')
-            pyplot.grid(True)
-            pyplot.legend(loc="best")
-
-            weightsByCoord = {}
-            left_bounds = np.zeros(len(left_weights))
-            right_bounds = np.ones(len(right_weights)) * input_size[1]
-            for [i, j] in weights['overlapLeft']:
-                index = i - top_bound
-                left_bounds[index] = max(left_bounds[index], j)
-                weightsByCoord[(i, j)] = left_weights[index]
-            for [i, j] in weights['overlapRight']:
-                index = i - top_bound
-                right_bounds[index] = min(right_bounds[index], j)
-                weightsByCoord[(i, j)] = right_weights[index]
-            raw = depth_images[plane]
-            valid = validmap_images[plane]
-            weighted_depth = np.zeros(raw.shape)
-
-            def interpolate_weight(i,j, left_bound ,right_bound):
-                left_weight = left_weights[i]
-                right_weight = right_weights[i]
-                column = float(j)
-                if left_bound > right_bound:
-                    right_bound += input_size[1]
-                    if column < left_bound:
-                        column += input_size[1]
-                return linear_interpolate(column, left_bound, right_bound, left_weight, right_weight)
-
-            max_depth = 0
-            min_depth = 1000
-            interp_region = 50
-            for i in range(weighted_depth.shape[0]):
-                for j in range(weighted_depth.shape[1]):
-                    if valid.item(i, j) == 1:
-                        depth_value = raw.item(i, j)
-                        if (i, j) in weightsByCoord:
-                            index = i - top_bound
-                            left_bound = left_bounds[index]
-                            right_bound = right_bounds[index]
-                            diff = right_bound - left_bound
-                            left_bound -= interp_region
-                            right_bound += interp_region
-                            if j > left_bound and j < right_bound:
-                                weight = interpolate_weight(index, j, left_bound, right_bound)
-                            else:
-                                weight = weightsByCoord[(i, j)]
-                            weighted_value = depth_value * weight
-                        else:
-                            if i < top_bound:
-                                index = 0
-                            elif i >= bottom_bound:
-                                index = len(left_weights) - 1
-                            else:
-                                index = i - top_bound
-                            left_bound = left_bounds[index] - interp_region
-                            right_bound = right_bounds[index] + interp_region
-                            weight = interpolate_weight(index, j, left_bound, right_bound)
-                            weighted_value = depth_value * weight
-                        weighted_depth.itemset(i, j, weighted_value)
-
-            saveArray(weighted(plane), weighted_depth)
-        pyplot.savefig(getFilename("weightsPlot.png"))
+            depth_images, validmap_images, input_image, weighted, getFilename("weightsPlot.png"))
+        
     else:
         print('Skipping weighting...')
     # Reconstruct sphere
@@ -259,15 +185,6 @@ if __name__ == "__main__":
             valid_pixels.append(loadArray(rotatedBackmap(i)))
         planes = np.array(planes)
         valid_pixels = np.array(valid_pixels)
-        # Reconstruct a colormapped depth
-        # reconstructed = np.zeros((input_size[0], input_size[1], 3))
-        # for k in range(len(planes)):
-        #     for i in range(reconstructed.shape[0]):
-        #         for j in range(reconstructed.shape[1]):
-        #             pixel = planes[k].item(i, j)
-        #             if pixel != 0:
-        #                 reconstructed.itemset(i, j, (k % 2) * 2, pixel)
-        # cv2.imwrite(getFilename('colormap.jpg'), reconstructed)
 
         difference = np.zeros((input_size[0], input_size[1]))
         average = np.zeros((input_size[0], input_size[1]))
