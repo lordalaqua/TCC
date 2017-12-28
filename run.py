@@ -1,4 +1,5 @@
 import os
+import errno
 import sys
 
 import numpy as np
@@ -15,38 +16,6 @@ import argparse
 
 # Config variables
 SCRIPT_PATH = os.path.dirname(os.path.realpath(__file__))
-results_folder = 'results'
-subfolder = 'planes'
-basefolder = os.path.join(SCRIPT_PATH, results_folder, subfolder)
-
-
-def getFilename(name):
-    return os.path.join(basefolder, name)
-
-
-def resultsFolderImage(name):
-    return lambda number: os.path.join(basefolder, name, str(number) + '.png')
-
-
-def resultsFolderMat(name):
-    return lambda number: os.path.join(basefolder, name, str(number) + '.mat')
-
-
-def resultsFolderSubFile(folder, file):
-    return lambda number: os.path.join(folder, str(number), file)
-
-
-rotated = resultsFolderImage('rotated')
-crop = resultsFolderImage('crop')
-cropsFolder = getFilename('crop')
-depthFolder = getFilename('depth')
-depth = resultsFolderSubFile(depthFolder, 'predict_depth.mat')
-weighted = resultsFolderMat('weighted')
-reprojected = resultsFolderMat('reprojection')
-validmap = resultsFolderMat('validmap')
-rotatedBack = resultsFolderMat('rotatedBack')
-rotatedBackImage = resultsFolderImage('rotatedBack')
-rotatedBackmap = resultsFolderMat('rotatedBackmap')
 
 
 def mapImage(function, image):
@@ -85,11 +54,19 @@ def depthFayao(image, output):
 def linear_interpolate(x, x1, x0, y1, y0):
     return y0 + (x - x0) * ((y1 - y0) / (x1 - x0))
 
+def create_dir_if_needed(directory):
+    try:
+        os.makedirs(directory)
+    except OSError as e:
+        if e.errno != errno.EEXIST:
+            raise
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description='Estimate equirectangular image depth.')
     parser.add_argument('-i', metavar='image', default='input.jpg')
+    parser.add_argument('-f', metavar='results_folder', default='results')
+    parser.add_argument('-o', metavar='output_folder', default='output')
     parser.add_argument('-nocrop', action='store_false')
     parser.add_argument('-nodepth', action='store_false')
     parser.add_argument('-noreproject', action='store_false')
@@ -97,15 +74,52 @@ if __name__ == "__main__":
     parser.add_argument('-nosphere', action='store_false')
 
     args = parser.parse_args()
-
-    # config values
+    # Get config values from args
     image = args.i
+    results_folder = args.f
+    subfolder = args.o
     run_cropping = args.nocrop
     run_depth_prediction = args.nodepth
     run_reprojection = args.noreproject
     run_weighting = args.noweighting
     reconstruct_sphere = args.nosphere
-    # reconstruct_from_raw_depth = False
+
+    
+    basefolder = os.path.join(SCRIPT_PATH, results_folder, subfolder)
+
+    def getFilename(name):
+        return os.path.join(basefolder, name)
+
+
+    def resultsFolderImage(name):
+        directory = os.path.join(basefolder, name)
+        create_dir_if_needed(directory)
+        return lambda number: os.path.join(directory, str(number) + '.png')
+
+
+    def resultsFolderMat(name):
+        directory = os.path.join(basefolder, name)
+        create_dir_if_needed(directory)
+        return lambda number: os.path.join(directory, str(number) + '.mat')
+
+
+    def resultsFolderSubFile(folder, file):
+        return lambda number: os.path.join(folder, str(number), file)
+
+
+    rotated = resultsFolderImage('rotated')
+    crop = resultsFolderImage('crop')
+    cropsFolder = getFilename('crop')
+    depthFolder = getFilename('depth')
+    depth = resultsFolderSubFile(depthFolder, 'predict_depth.mat')
+    weighted = resultsFolderMat('weighted')
+    reprojected = resultsFolderMat('reprojection')
+    validmap = resultsFolderMat('validmap')
+    rotatedBack = resultsFolderMat('rotatedBack')
+    rotatedBackImage = resultsFolderImage('rotatedBack')
+    rotatedBackmap = resultsFolderMat('rotatedBackmap')
+
+    
     calculate_weights = find_weights
     fov_h = 90
     crop_size = 640
@@ -171,7 +185,7 @@ if __name__ == "__main__":
 
         # Run solving algorithm
         plane_weights = calculate_weights(
-            depth_images, validmap_images, input_image, weighted, getFilename("weightsPlot.png"))
+            depth_images, validmap_images, input_image, weighted, getFilename("weights-plot.png"))
         
     else:
         print('Skipping weighting...')
@@ -186,22 +200,23 @@ if __name__ == "__main__":
         planes = np.array(planes)
         valid_pixels = np.array(valid_pixels)
 
-        difference = np.zeros((input_size[0], input_size[1]))
-        average = np.zeros((input_size[0], input_size[1]))
-        for i in range(difference.shape[0]):
-            for j in range(difference.shape[1]):
-                values = []
-                for k in range(len(planes)):
-                    pixel = planes.item(k, i, j)
-                    if(pixel != 0):
-                        values.append(pixel)
-                if len(values) > 0:
-                    average.itemset(i, j, sum(values) / len(values))
-                    if len(values) == 2:
-                        difference.itemset(i, j, abs(values[0] - values[1]))
-        # Normalize difference
-        imwriteNormalize(getFilename('difference.jpg'), difference)
-        imwriteNormalize(getFilename('average.jpg'), average)
+        # # Save difference in overlaps and average
+        # difference = np.zeros((input_size[0], input_size[1]))
+        # average = np.zeros((input_size[0], input_size[1]))
+        # for i in range(difference.shape[0]):
+        #     for j in range(difference.shape[1]):
+        #         values = []
+        #         for k in range(len(planes)):
+        #             pixel = planes.item(k, i, j)
+        #             if(pixel != 0):
+        #                 values.append(pixel)
+        #         if len(values) > 0:
+        #             average.itemset(i, j, sum(values) / len(values))
+        #             if len(values) == 2:
+        #                 difference.itemset(i, j, abs(values[0] - values[1]))
+        # # Normalize difference
+        # imwriteNormalize(getFilename('difference.jpg'), difference)
+        # imwriteNormalize(getFilename('average.jpg'), average)
 
         blend = np.zeros((input_size[0], input_size[1]))
         pairs = [(x, x + 1 if x + 1 < len(angles) else 0) for x in range(len(angles))]
@@ -231,5 +246,5 @@ if __name__ == "__main__":
                     if pixel:
                         blend.itemset(i, j, pixel)
 
-        saveArray(getFilename('blend.mat'), blend)
-        imwriteNormalize(getFilename('blend.jpg'), blend)
+        saveArray(getFilename('depth.mat'), blend)
+        imwriteNormalize(getFilename('depth.jpg'), blend)
